@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Starlance: A New Horizon</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="stars"></div>
+    <div class="hud-wrap">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Deep Space Choice Adventure</p>
+          <h1>Starlance: A New Horizon</h1>
+        </div>
+        <nav class="top-actions" aria-label="Game actions">
+          <button id="shipyardBtn" class="ghost-btn" type="button">Shipyard</button>
+          <button id="expansionBtn" class="ghost-btn" type="button">Free episode</button>
+          <button id="restartBtn" class="ghost-btn" type="button">Restart</button>
+        </nav>
+      </header>
+
+      <main class="game-shell">
+        <aside class="status-panel">
+          <h2>Mission Readout</h2>
+          <div class="stat-grid" id="stats"></div>
+          <div class="fleet-box">
+            <h3>Ship Log</h3>
+            <ul id="logList"></ul>
+          </div>
+        </aside>
+
+        <section class="story-panel">
+          <div id="scene" class="scene-card"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="game.js"></script>
+  </body>
+</html>
