@@ -14,6 +14,7 @@ const initialState = {
   combatResult: null,
   expansionStep: 0,
   expansionDone: false,
+  expansionRewarded: false,
   screen: 'story',
   chapter: 'Launch',
   visited: new Set(),
@@ -503,9 +504,41 @@ function renderScene(state, sceneKey) {
   }
 }
 
+function getCriticalState(state) {
+  if (state.crew <= 0) {
+    return {
+      title: 'The Arbiter is lost',
+      tone: 'danger',
+      message: 'The crew has fallen, the ship is drifting, and the colony has no future on this route. The storm claims the last of your command.',
+      action: 'Restart the voyage'
+    };
+  }
+
+  if (state.shields <= 0) {
+    return {
+      title: 'Hull breach',
+      tone: 'warn',
+      message: 'The Arbiter is crippled and unable to hold the line. If you do not regroup now, the frontier will bury the ship under its own wreckage.',
+      action: 'Restart the voyage'
+    };
+  }
+
+  return null;
+}
+
 function renderGame(state) {
   createStats(state);
   updateLog(state);
+
+  const critical = getCriticalState(state);
+  if (critical) {
+    const sceneEl = document.getElementById('scene');
+    sceneEl.innerHTML = `<div class="scene-top"><h2>${critical.title}</h2><span class="scene-badge">Critical failure</span></div>
+      <div class="scene-body"><div class="story-copy"><p>${critical.message}</p><button id="restartCritical" class="choice-btn" type="button"><strong>${critical.action}</strong></button></div><aside class="side-panel"><div class="outcome-box ${critical.tone}"><h3>Legacy</h3><p>The line is broken. Your ship can only recover by returning to the start and choosing a wiser path.</p></div></aside></div>`;
+    document.getElementById('restartCritical').addEventListener('click', restartGame);
+    return;
+  }
+
   if (state.screen === 'shop') {
     renderShop(state);
   } else if (state.screen === 'expansion') {
@@ -530,9 +563,11 @@ function resetGame() {
 
 let state = resetGame();
 
-document.getElementById('restartBtn').addEventListener('click', () => {
+function restartGame() {
   state = resetGame();
-});
+}
+
+document.getElementById('restartBtn').addEventListener('click', restartGame);
 
 document.getElementById('shipyardBtn').addEventListener('click', () => {
   state.screen = 'shop';
