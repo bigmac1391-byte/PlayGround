@@ -21,6 +21,13 @@ const initialState = {
   log: ['Navigator online. Verge of the Ashen Verge.'],
   ending: null,
   currentKey: 'ambush',
+  pendingNext: null,
+  voyageDay: 1,
+  encountersPlayed: 0,
+  lastEncounterId: null,
+  lastEncounterType: null,
+  chanceRemaining: 0,
+  currentEncounter: null,
 };
 
 const story = {
@@ -177,6 +184,117 @@ const story = {
     choices: []
   }
 };
+
+const chanceEncounters = [
+  {
+    id: 'singing-comet', type: 'Fortune', title: 'The Singing Comet', badge: 'Lucky Find',
+    text: 'A blue comet brushes the Arbiter’s wake, scattering ice that glitters with trace metals. The crew spots a clean harvest window before the fragments drift away.',
+    choices: [
+      { label: 'Harvest', text: 'Send a careful team to collect the richest fragments.', effect: { scrap: 9, supplies: 3 } },
+      { label: 'Study', text: 'Scan the comet’s strange song and share the data.', effect: { reputation: 3, morale: 4 } },
+      { label: 'Keep moving', text: 'Avoid the debris and save the crew a risky EVA.', effect: { shields: 3, morale: 2 } }
+    ]
+  },
+  {
+    id: 'drifting-garden', type: 'Fortune', title: 'A Garden Adrift', badge: 'Good Fortune',
+    text: 'An automated greenhouse pod tumbles out of the dark, still warm and full of hardy crops. Its caretaker AI offers the harvest freely.',
+    choices: [
+      { label: 'Rescue', text: 'Bring the pod aboard and feed the colony.', effect: { supplies: 12, morale: 3 } },
+      { label: 'Welcome', text: 'Invite its lone caretaker to join your crew.', effect: { crew: 2, morale: 5, supplies: -3 } },
+      { label: 'Salvage', text: 'Strip the grow lights and leave the pod on its way.', effect: { scrap: 7, supplies: 4 } }
+    ]
+  },
+  {
+    id: 'pilgrim-beacon', type: 'Fortune', title: 'Pilgrim Beacon', badge: 'Friendly Contact',
+    text: 'A string of pilgrim ships recognizes the Arbiter’s call sign. They offer a safe passage through nearby reefs and a little help for the road.',
+    choices: [
+      { label: 'Share', text: 'Trade stories and supplies with the pilgrims.', effect: { supplies: 7, morale: 7, reputation: 3 } },
+      { label: 'Escort', text: 'Protect their slowest ship through the next passage.', effect: { reputation: 5, shields: 4 } },
+      { label: 'Decline', text: 'Thank them and take their charts without delay.', effect: { supplies: 4, reputation: 1 } }
+    ]
+  },
+  {
+    id: 'repair-drone', type: 'Fortune', title: 'The Little Repair Drone', badge: 'Unexpected Help',
+    text: 'A battered service drone clings to the hull. Its old owner is long gone, but its repair arms still work—and it has a cache of spare parts.',
+    choices: [
+      { label: 'Repair', text: 'Let the drone patch the shield array.', effect: { shields: 12, scrap: 2 } },
+      { label: 'Recruit', text: 'Welcome the drone into the engineering bay.', effect: { morale: 4, scrap: 6 } },
+      { label: 'Trade', text: 'Swap a few supplies for its spare components.', effect: { supplies: -3, scrap: 10 } }
+    ]
+  },
+  {
+    id: 'solar-flare', type: 'Hazard', title: 'Solar Flare', badge: 'Bad Luck',
+    text: 'The star ahead erupts without warning. Warning lights bloom across the bridge as charged particles rake the Arbiter.',
+    choices: [
+      { label: 'Brace', text: 'Seal the bulkheads and ride out the impact.', effect: { shields: -10, crew: -1 } },
+      { label: 'Burn', text: 'Spend fuel and supplies to outrun the worst of it.', effect: { supplies: -8, shields: -3 } },
+      { label: 'Shield', text: 'Overload the array to protect the crew.', effect: { shields: -16, morale: 3 } }
+    ]
+  },
+  {
+    id: 'ration-spoilage', type: 'Hazard', title: 'Spoiled Stores', badge: 'Bad Luck',
+    text: 'A coolant valve fails in the galley. Half a day later, several ration lockers are ruined and a handful of crew are sick.',
+    choices: [
+      { label: 'Discard', text: 'Throw out everything suspect and prevent an outbreak.', effect: { supplies: -10, morale: 1 } },
+      { label: 'Triage', text: 'Save what you can; accept a few sick days.', effect: { supplies: -5, crew: -2, morale: -3 } },
+      { label: 'Stretch', text: 'Mix the damaged stock into emergency meal packs.', effect: { supplies: -2, morale: -8 } }
+    ]
+  },
+  {
+    id: 'engine-swarm', type: 'Hazard', title: 'Scrap-Eater Swarm', badge: 'Hull Damage',
+    text: 'A cloud of metallic scavengers mistakes the Arbiter for a derelict. They chew through an exterior panel before the crew can drive them off.',
+    choices: [
+      { label: 'Repel', text: 'Use the point-defense cannons to clear the hull.', effect: { shields: -7, scrap: -3 } },
+      { label: 'Lure', text: 'Dump spare metal to draw the swarm away.', effect: { scrap: -8, shields: -2 } },
+      { label: 'Harvest', text: 'Trap a few and recover their useful alloys.', effect: { crew: -1, shields: -5, scrap: 5 } }
+    ]
+  },
+  {
+    id: 'stowaway', type: 'Hazard', title: 'The Stowaway', badge: 'Shipboard Trouble',
+    text: 'A frightened refugee is discovered in a sealed cargo compartment. Their presence has strained life support, but sending them back out would be a death sentence.',
+    choices: [
+      { label: 'Shelter', text: 'Make room for them and calm the worried crew.', effect: { crew: 1, supplies: -6, morale: 3 } },
+      { label: 'Detain', text: 'Keep them aboard under guard until the next port.', effect: { morale: -5, supplies: -2 } },
+      { label: 'Turn away', text: 'Put them in a shuttle with emergency rations.', effect: { supplies: -4, reputation: -3, morale: -2 } }
+    ]
+  },
+  {
+    id: 'toll-gate', type: 'Crossroads', title: 'The Toll Gate', badge: 'Risk & Reward',
+    text: 'A private beacon operator controls the only stable passage through this patch of space. The fee is steep, and their credentials are questionable.',
+    choices: [
+      { label: 'Pay', text: 'Buy the safe coordinates and keep the ship intact.', effect: { scrap: -7, shields: 5 } },
+      { label: 'Bargain', text: 'Offer your charts in exchange for a discount.', effect: { reputation: 2, supplies: -3 } },
+      { label: 'Sneak', text: 'Try the route without permission and risk a patrol.', effect: { scrap: 6, shields: -8, reputation: -2 } }
+    ]
+  },
+  {
+    id: 'old-cache', type: 'Crossroads', title: 'Cache in the Dust', badge: 'Risk & Reward',
+    text: 'A distress marker points to an old survival cache wedged into an asteroid. It could be a genuine lifeline—or a trap that never got switched off.',
+    choices: [
+      { label: 'Careful', text: 'Send a drone to map the cache before anyone approaches.', effect: { supplies: 5, scrap: 3 } },
+      { label: 'Rush', text: 'Grab the visible stores before the asteroid shifts.', effect: { supplies: 12, shields: -7 } },
+      { label: 'Leave', text: 'Mark the location for another traveler and move on.', effect: { reputation: 2, morale: 2 } }
+    ]
+  },
+  {
+    id: 'echoes', type: 'Crossroads', title: 'Echoes on the Comms', badge: 'A Strange Signal',
+    text: 'A voice matching your own comes over the comms, warning of a dangerous turn ahead. The recording is dated three days in the future.',
+    choices: [
+      { label: 'Trust it', text: 'Alter course and avoid the coordinates in the message.', effect: { supplies: -4, shields: 7 } },
+      { label: 'Trace it', text: 'Use the signal’s origin to find a hidden transmitter.', effect: { scrap: 8, morale: -3 } },
+      { label: 'Broadcast', text: 'Share the warning with every ship in range.', effect: { reputation: 4, supplies: -2 } }
+    ]
+  },
+  {
+    id: 'debris-field', type: 'Crossroads', title: 'The Debris Field', badge: 'Split Decision',
+    text: 'A shattered freighter spins through a dense debris field. Its black box may hold the location of a safe corridor, but the ship is coming apart.',
+    choices: [
+      { label: 'Rescue', text: 'Search for survivors before the hull breaks up.', effect: { crew: 1, shields: -6, reputation: 3 } },
+      { label: 'Salvage', text: 'Recover the engine core and leave the wreck behind.', effect: { scrap: 11, supplies: -3 } },
+      { label: 'Navigate', text: 'Plot a careful course around the wreckage.', effect: { shields: 3, morale: 2 } }
+    ]
+  }
+];
 
 function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }
 
@@ -433,8 +551,27 @@ function renderExpansion(state) {
   });
 }
 
+function drawChanceEncounter(state) {
+  const roll = Math.random();
+  let type = roll < 0.38 ? 'Fortune' : roll < 0.76 ? 'Hazard' : 'Crossroads';
+  if (type === state.lastEncounterType) {
+    type = ['Fortune', 'Hazard', 'Crossroads'].filter((candidate) => candidate !== type)[Math.floor(Math.random() * 2)];
+  }
+  let pool = chanceEncounters.filter((encounter) => encounter.type === type && encounter.id !== state.lastEncounterId);
+  if (!pool.length) pool = chanceEncounters.filter((encounter) => encounter.id !== state.lastEncounterId);
+  const encounter = pool[Math.floor(Math.random() * pool.length)];
+  state.lastEncounterId = encounter.id;
+  state.lastEncounterType = encounter.type;
+  return encounter;
+}
+
+function describeEffects(effect = {}) {
+  const labels = { crew: 'crew', morale: 'morale', supplies: 'supplies', shields: 'shields', scrap: 'scrap', reputation: 'rep' };
+  return Object.entries(effect).map(([key, value]) => `${value > 0 ? '+' : ''}${value} ${labels[key] || key}`).join(' · ');
+}
+
 function renderScene(state, sceneKey) {
-  const scene = story[sceneKey] || story.intro;
+  const scene = sceneKey === 'chance' ? state.currentEncounter : (story[sceneKey] || story.intro);
   if (scene.type === 'combat') {
     renderCombat(state, scene);
     return;
@@ -454,7 +591,7 @@ function renderScene(state, sceneKey) {
           ${scene.choices.length
             ? scene.choices.map((choice, index) => `
               <button class="choice-btn" type="button" data-next="${choice.next}" data-index="${index}">
-                <span class="choice-tag">${choice.label}</span>
+                <span class="choice-tag">${choice.label} · ${describeEffects(choice.effect)}</span>
                 <strong>${choice.text}</strong>
               </button>
             `).join('')
@@ -463,13 +600,15 @@ function renderScene(state, sceneKey) {
                 <h3>Legacy</h3>
                 <p>${outcome.message}</p>
               </div>
+              <div class="mission-box"><h3>Voyage complete</h3><p>${state.voyageDay} days · ${state.encountersPlayed} chance encounters · ${state.crew} crew remain.</p></div>
+              <button id="playAgain" class="choice-btn" type="button"><strong>Launch another voyage</strong></button>
             `}
         </div>
       </div>
       <div class="side-panel">
         <div class="mission-box">
           <h3>Mission</h3>
-          <p>Hold the line through the Ashen Verge and shape a future that the colony can survive.</p>
+          <p>Hold the line through the Ashen Verge and shape a future that the colony can survive.<br><br><strong>Voyage day:</strong> ${state.voyageDay}<br><strong>Chance encounters:</strong> ${state.encountersPlayed}${state.currentKey === 'chance' ? ` · ${state.chanceRemaining} ahead` : ''}</p>
         </div>
         <div class="outcome-box ${outcome.tone}">
           <h3>Forecast</h3>
@@ -479,26 +618,45 @@ function renderScene(state, sceneKey) {
     </div>
   `;
 
+  if (!scene.choices.length) {
+    document.getElementById('playAgain').addEventListener('click', restartGame);
+  }
   if (scene.choices.length) {
     sceneEl.querySelectorAll('.choice-btn').forEach((button) => {
       button.addEventListener('click', () => {
-        const nextKey = button.dataset.next;
         const idx = Number(button.dataset.index);
         const selected = scene.choices[idx];
         if (!selected) return;
 
         applyEffects(state, selected.effect);
-        state.log.push(`${selected.text} — a choice with consequences.`);
-        state.currentKey = nextKey;
-        state.chapter = nextKey;
-
-        const nextScene = story[nextKey];
-        if (nextScene && nextScene.title) {
-          renderGame(state);
+        state.log.push(`${selected.text} — ${describeEffects(selected.effect) || 'no change'}.`);
+        if (sceneKey === 'chance') {
+          state.chanceRemaining = Math.max(0, state.chanceRemaining - 1);
+          state.encountersPlayed += 1;
+          state.voyageDay += 1;
+          if (state.chanceRemaining > 0) {
+            state.currentEncounter = drawChanceEncounter(state);
+            state.currentKey = 'chance';
+          } else {
+            state.currentKey = state.pendingNext || 'finale';
+            state.chapter = state.currentKey;
+            state.pendingNext = null;
+          }
         } else {
-          state.ending = 'complete';
-          renderGame(state);
+          const nextKey = button.dataset.next;
+          state.currentKey = nextKey;
+          state.chapter = nextKey;
+          const isMajorTravelBeat = ['relay', 'icebound', 'stormfront', 'salvation', 'outcast', 'truce', 'banner', 'compromise', 'mercantile'].includes(sceneKey);
+          if (isMajorTravelBeat && nextKey === 'finale') {
+            state.pendingNext = nextKey;
+            state.chanceRemaining = 3;
+            state.currentEncounter = drawChanceEncounter(state);
+            state.currentKey = 'chance';
+            state.chapter = 'The Long Passage';
+            state.log.push('Three uncertain days remain before the final horizon.');
+          }
         }
+        renderGame(state);
       });
     });
   }
@@ -555,7 +713,14 @@ function resetGame() {
     visited: new Set(),
     log: ['Navigator online. Verge of the Ashen Verge.'],
     screen: 'story',
-    currentKey: 'ambush'
+    currentKey: 'ambush',
+    pendingNext: null,
+    voyageDay: 1,
+    encountersPlayed: 0,
+    lastEncounterId: null,
+    lastEncounterType: null,
+    chanceRemaining: 0,
+    currentEncounter: null
   };
   renderGame(fresh);
   return fresh;
