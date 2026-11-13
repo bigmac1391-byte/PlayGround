@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "The Thornbound Oath — A Fantasy Romance",
+  "short_name": "Thornbound Oath",
+  "description": "A choice-rich fantasy romance set in the Thornbound Kingdom.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#121114",
+  "theme_color": "#17151a",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,46 +1,59 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Starlance: A New Horizon</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <div class="stars"></div>
-    <div class="hud-wrap">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Deep Space Choice Adventure</p>
-          <h1>Starlance: A New Horizon</h1>
-        </div>
-        <nav class="top-actions" aria-label="Game actions">
-          <button id="shipyardBtn" class="ghost-btn" type="button">Shipyard</button>
-          <button id="expansionBtn" class="ghost-btn" type="button">Free episode</button>
-          <button id="restartBtn" class="ghost-btn" type="button">Restart</button>
-        </nav>
-      </header>
-
-      <main class="game-shell">
-        <aside class="status-panel">
-          <h2>Mission Readout</h2>
-          <div class="stat-grid" id="stats"></div>
-          <div class="fleet-box">
-            <h3>Ship Log</h3>
-            <ul id="logList"></ul>
-          </div>
-        </aside>
-
-        <section class="story-panel">
-          <div id="scene" class="scene-card"></div>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17151a">
+  <meta name="description" content="A choice-rich fantasy romance set in the Thornbound Kingdom.">
+  <title>The Thornbound Oath — A Fantasy Romance</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="The Thornbound Oath home"><span class="brand-mark">✦</span><span><small>A FANTASY ROMANCE</small><strong>The Thornbound Oath</strong></span></a>
+      <div class="header-actions">
+        <button id="codexBtn" class="quiet-btn" type="button">✧ Codex</button>
+        <button id="saveBtn" class="quiet-btn" type="button">Saved locally</button>
+        <button id="soundBtn" class="quiet-btn" type="button" aria-label="Toggle ambient sound">♫ <span>Sound off</span></button>
+        <button id="restartBtn" class="quiet-btn" type="button">New story</button>
+      </div>
+    </header>
+    <main class="layout">
+      <aside class="sidebar">
+        <section class="journey-card">
+          <div class="section-kicker">YOUR CHRONICLE</div>
+          <div class="progress-label"><span id="chapterLabel">Chapter I</span><span id="progressText">1 / 20</span></div>
+          <div class="progress-track"><span id="progressBar"></span></div>
+          <p id="questText" class="quest-text"></p>
         </section>
-      </main>
-    </div>
-
-    <script src="game.js"></script>
-  </body>
+        <section class="companions-card">
+          <div class="section-heading"><span>YOUR COMPANIONS</span><span class="tiny-star">✦</span></div>
+          <div id="companions" class="companion-list"></div>
+        </section>
+        <section class="journal-card">
+          <div class="section-heading">JOURNAL <span class="journal-count" id="journalCount">0</span></div>
+          <ul id="journalList"></ul>
+        </section>
+        <div class="sidebar-foot">A tale of trust, courage &amp; chosen hearts<br><span>All romanceable characters are adults.</span></div>
+      </aside>
+      <section class="play-area">
+        <div id="scene" class="scene-card" aria-live="polite"></div>
+        <footer class="game-footer"><span>✦ Your choices shape the realm</span><span>Autosaves on this device</span></footer>
+      </section>
+    </main>
+  </div>
+  <dialog id="codexDialog" class="codex-dialog">
+    <div class="dialog-head"><div><span class="section-kicker">FIELD NOTES</span><h2>The Companions</h2></div><button id="closeCodex" class="close-btn" aria-label="Close codex">×</button></div>
+    <div id="codexContent" class="codex-content"></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="game.js"></script>
+</body>
 </html>
