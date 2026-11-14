@@ -4,6 +4,7 @@ const APP_SHELL = [
   './index.html',
   './style.css',
   './game.js',
+  './characters-3d.js',
   './manifest.webmanifest',
   './favicon.svg'
 ];

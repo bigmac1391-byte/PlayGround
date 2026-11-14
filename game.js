@@ -172,6 +172,7 @@ function strongestCompanion(minBond = 0) {
 }
 function activeScene() { return scenes[state.index]; }
 function render() {
+  window.disposeCharacterModels?.();
   const scene = activeScene();
   const character = scene.character ? characters[scene.character] : null;
   const percentage = Math.round(((state.index + (state.ending ? 1 : 0)) / scenes.length) * 100);
@@ -185,9 +186,9 @@ function render() {
     const person = characters[id];
     const isActive = scene.character === id || state.romance === id;
     const favor = state.bonds[id];
-    return `<div class="companion${isActive ? ' active' : ''}"><div class="companion-avatar" aria-hidden="true">${person.icon}</div><div><div class="companion-name">${person.name}</div><div class="companion-role">${person.role}</div><div class="favor-track" role="meter" aria-label="Favor with ${person.name}" aria-valuemin="0" aria-valuemax="10" aria-valuenow="${favor}"><i style="--favor-fill:${favor * 10}%"></i></div></div><div class="favor-score">${favor}<span>FAVOR</span></div></div>`;
+    return `<div class="companion${isActive ? ' active' : ''}"><div class="companion-avatar" aria-hidden="true" style="--avatar-glow:${person.glow}"><canvas class="portrait-canvas" data-character="${id}" aria-hidden="true"></canvas><span>${person.icon}</span></div><div><div class="companion-name">${person.name}</div><div class="companion-role">${person.role}</div><div class="favor-track" role="meter" aria-label="Favor with ${person.name}" aria-valuemin="0" aria-valuemax="10" aria-valuenow="${favor}"><i style="--favor-fill:${favor * 10}%"></i></div></div><div class="favor-score">${favor}<span>FAVOR</span></div></div>`;
   }).join('');
-  const figure = character ? `<div class="character-figure ${character.look}" style="--cloak:${character.color};--hair:${character.hair};--glow:${character.glow}"><i class="glow"></i><i class="cloak"></i><i class="torso"></i><i class="head"></i><i class="hair"></i></div>` : '';
+  const figure = character ? `<div class="character-figure ${character.look}" data-character="${scene.character}" style="--cloak:${character.color};--hair:${character.hair};--glow:${character.glow}"><canvas class="character-canvas" data-character="${scene.character}" aria-label="3D portrait of ${character.name}"></canvas><div class="fallback-figure" aria-hidden="true"><i class="glow"></i><i class="cloak"></i><i class="torso"></i><i class="head"></i><i class="hair"></i></div></div>` : '';
   const artClass = character ? '' : ' art-no-character';
   const storyText = (scene.text || '').split(/(?<=[.!?])\s+/).filter(Boolean).map((part, i) => `<p${i === 0 ? ' class="lead"' : ''}>${escapeHTML(part)}</p>`).join('');
   const companionAside = character ? `<div><div class="aside-label">IN THIS SCENE</div><div class="aside-copy"><strong>${character.name}, ${character.age}</strong><br>${character.role}</div></div><div><div class="aside-label">ABOUT</div><div class="aside-copy">${character.bio}</div></div>` : `<div><div class="aside-label">YOUR COMPANY</div><div class="aside-copy">Four companions, each with their own hopes, boundaries, and reasons for being here.</div></div><div><div class="aside-label">YOUR PATH</div><div class="aside-copy">Trust ${state.stats.trust} · Insight ${state.stats.wisdom} · Renown ${state.stats.renown}</div></div>`;
@@ -214,6 +215,7 @@ function render() {
   sceneRoot.querySelectorAll('[data-choice]').forEach(button => button.addEventListener('click', () => choose(Number(button.dataset.choice))));
   const playAgain = document.getElementById('playAgain');
   if (playAgain) playAgain.addEventListener('click', restartGame);
+  window.initCharacterModels?.();
   document.getElementById('saveBtn').textContent = localStorage.getItem(SAVE_KEY) ? 'Saved locally' : 'Save story';
 }
 function choose(choiceIndex) {
