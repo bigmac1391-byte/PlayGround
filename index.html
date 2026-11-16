@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#101a1d" />
+  <title>Mythic Realms — Crown of the Continent</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main id="app">
+    <section class="start-screen" id="startScreen">
+      <div class="start-art"><div class="sigil">✦</div><span class="start-orbit">✧</span></div>
+      <div class="start-copy">
+        <p class="eyebrow">A MYTHIC-TO-GALACTIC STRATEGY GAME</p>
+        <h1>One universe.<br><em>Many legends.</em></h1>
+        <p class="intro">Build a mythical realm, reach the stars, and lead a galactic race. Rick and Morty are your questionable guides.</p>
+        <h2>Choose your civilization</h2>
+        <div class="nation-options" id="nationOptions"></div>
+        <button class="primary start-button" id="startGame" disabled>Choose your banner <span>→</span></button>
+        <p class="fine-print">A compact turn-based strategy game • 10–20 minutes</p>
+      </div>
+      <div class="start-footer">THE CHRONICLES OF THE CROWN <span>✦</span> MYTHIC TO GALACTIC
+    </section>
+
+    <section class="game-screen hidden" id="gameScreen">
+      <header class="topbar">
+        <button class="brand" id="homeButton" aria-label="Return to title"><span class="brand-mark">✦</span><span>MYTHIC<br><b>REALMS</b></span></button>
+        <div class="campaign"><span class="campaign-label">CAMPAIGN</span><strong id="campaignTitle">Crown of the Continent</strong><span class="campaign-sub">THE SHATTERED MARCHES</span></div>
+        <div class="top-resources" id="topResources"></div>
+        <button class="icon-button" id="helpButton" aria-label="How to play">?</button>
+      </header>
+      <div class="game-layout">
+        <aside class="realm-panel panel">
+          <div class="realm-heading"><span class="faction-icon" id="factionIcon">♜</span><div><span class="eyebrow">YOUR REALM</span><h2 id="factionName">Sparta</h2></div></div>
+          <div class="realm-flavor" id="factionFlavor"></div>
+          <div class="age-card"><div class="age-mark">⌁</div><div><span class="eyebrow">CIVILIZATION AGE</span><strong id="ageName">Mythic Age</strong><div class="age-track"><i id="ageProgress"></i></div></div><span class="age-step" id="ageStep">I</span></div>
+          <div class="turn-strip"><span><i class="live-dot"></i> YEAR <b id="turnNumber">1</b></span><span id="actionPoints">2 / 2 ACTIONS</span></div>
+          <div class="goal-card"><div class="goal-icon">♛</div><div><span class="eyebrow">YOUR DESTINY</span><strong id="goalText">Conquer the rival capital</strong><small id="goalProgress">Capture the Crimson Keep</small></div></div>
+          <div class="section-title">YOUR CHAMPIONS <span id="unitTotal">0 units</span></div>
+          <div class="unit-list" id="unitList"></div>
+          <div class="section-title tech-title">RESEARCH <button id="openTech" class="text-button">TECH TREE ↗</button></div>
+          <div id="techSummary" class="tech-summary"></div>
+          <div class="panel-bottom"><span class="tiny-star">✦</span> <span id="passiveText">A legacy is written one turn at a time.</span></div>
+        </aside>
+
+        <section class="map-column">
+          <div class="map-heading"><div><p class="eyebrow">THE SHATTERED MARCHES</p><h1>Claim your <em>destiny</em></h1></div><div class="map-legend"><span><i class="legend-dot ally"></i> Yours</span><span><i class="legend-dot foe"></i> Rival</span><span><i class="legend-dot free"></i> Unclaimed</span></div></div>
+          <div class="map-frame"><div class="map-topline"><span>✦ &nbsp; CONTINENTAL SURVEY</span><span id="mapCoordinates">W 01 — E 06</span></div><div class="map-grid" id="mapGrid" role="grid" aria-label="World map"></div><div class="map-compass"><span>N</span><b>✧</b><span>S</span></div><div class="map-bottomline"><span id="mapStatus">Select a territory to inspect it.</span><span>◈ &nbsp; EXPLORE THE UNKNOWN</span></div></div>
+          <div class="map-actions"><div class="selected-info" id="selectedInfo"></div><div class="action-buttons" id="actionButtons"></div></div>
+        </section>
+
+        <aside class="intel-panel panel">
+          <div class="intel-head"><span class="eyebrow">REALM INTELLIGENCE</span><span class="intel-spark">✦</span></div>
+          <div class="rival-card"><div class="rival-top"><div class="rival-sigil" id="rivalIcon">☾</div><div><span class="eyebrow">RIVAL SOVEREIGN</span><h3 id="rivalName">The Ashen Court</h3></div></div><div class="rival-meter"><div><span>POWER</span><b id="rivalPower">1</b></div><div class="meter-track"><i id="rivalMeter"></i></div></div><p id="rivalStatus">An uneasy peace holds… for now.</p></div>
+          <div class="guide-card"><div class="guide-avatars"><span>R</span><span>M</span></div><div class="guide-copy"><span class="eyebrow">YOUR GUIDES · RICK & MORTY</span><p id="guideLine">Rick: Expand first. Morty: Please don't let the scary army get us.</p></div><button id="guideNext" aria-label="Ask Rick and Morty for advice">↻</button></div>
+          <div class="section-title">THE CHRONICLE <span class="chronicle-count" id="chronicleCount">01</span></div>
+          <div class="chronicle" id="chronicle" aria-live="polite"></div>
+          <div class="event-card"><span class="event-symbol">☼</span><div><span class="eyebrow">OMEN OF THE AGE</span><strong id="omenTitle">A new dawn</strong><p id="omenText">The banners are raised. The map is yours to shape.</p></div></div>
+          <button class="end-turn-button" id="endTurn"><span>END YEAR</span><b>→</b></button>
+          <button class="reset-link" id="restartGame">Abandon campaign</button>
+        </aside>
+      </div>
+      <div class="toast" id="toast" role="status"></div>
+      <div class="modal hidden" id="modal"><div class="modal-backdrop" data-close="true"></div><div class="modal-card" id="modalCard"></div></div>
+      <div class="victory-overlay hidden" id="victoryOverlay"></div>
+    </section>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>
