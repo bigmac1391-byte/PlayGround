@@ -1,3 +1,8 @@
+const SAVE_KEY = 'starlance.save.v1';
+const RECORDS_KEY = 'starlance.records.v1';
+const SETTINGS_KEY = 'starlance.settings.v1';
+const SAVE_VERSION = 1;
+
 const initialState = {
   crew: 24,
   morale: 68,
@@ -15,7 +20,8 @@ const initialState = {
   expansionStep: 0,
   expansionDone: false,
   expansionRewarded: false,
-  screen: 'story',
+  screen: 'title',
+  started: false,
   chapter: 'Launch',
   visited: new Set(),
   log: ['Navigator online. Verge of the Ashen Verge.'],
@@ -28,7 +34,415 @@ const initialState = {
   lastEncounterType: null,
   chanceRemaining: 0,
   currentEncounter: null,
+  repairsUsed: false,
+  endingRecorded: false,
 };
+
+const defaultSettings = {
+  sound: true,
+  motion: !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+};
+
+let settings = loadSettings();
+let deferredInstallPrompt = null;
+let lastSceneSignature = '';
+let modalReturnFocus = null;
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+    if (saved && typeof saved === 'object') {
+      return {
+        sound: saved.sound !== false,
+        motion: saved.motion !== false
+      };
+    }
+  } catch (error) {
+    // Storage can be unavailable in private browsing; defaults still work.
+  }
+  return { ...defaultSettings };
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch (error) {
+    // Ignore storage failures so gameplay keeps working.
+  }
+  applySettings();
+}
+
+function applySettings() {
+  document.documentElement.dataset.motion = settings.motion ? 'full' : 'reduced';
+  const soundButton = document.getElementById('soundBtn');
+  if (soundButton) {
+    soundButton.classList.toggle('muted', !settings.sound);
+    soundButton.setAttribute('aria-pressed', String(settings.sound));
+    soundButton.setAttribute('aria-label', settings.sound ? 'Mute sound effects' : 'Enable sound effects');
+    soundButton.title = settings.sound ? 'Sound on' : 'Sound off';
+  }
+}
+
+/* ---------- Sound ---------- */
+
+const audio = { context: null };
+
+function initAudio() {
+  if (!settings.sound) return;
+  if (!audio.context) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    audio.context = new AudioCtx();
+  }
+  if (audio.context.state === 'suspended') audio.context.resume().catch(() => {});
+}
+
+function playSound(kind = 'click') {
+  if (!settings.sound) return;
+  initAudio();
+  if (!audio.context) return;
+
+  const presets = {
+    click: [[420, 0.05, 0.035]],
+    choice: [[360, 0.05, 0.035], [540, 0.07, 0.03]],
+    good: [[523, 0.08, 0.05], [659, 0.09, 0.045], [784, 0.14, 0.04]],
+    bad: [[220, 0.12, 0.05], [155, 0.18, 0.045]],
+    roll: [[300, 0.04, 0.03], [470, 0.04, 0.03], [620, 0.06, 0.03]],
+    ending: [[392, 0.1, 0.045], [523, 0.12, 0.045], [659, 0.14, 0.045], [784, 0.3, 0.05]]
+  };
+  const notes = presets[kind] || presets.click;
+  const now = audio.context.currentTime;
+  notes.forEach(([frequency, duration, volume], index) => {
+    const start = now + index * 0.07;
+    const oscillator = audio.context.createOscillator();
+    const gain = audio.context.createGain();
+    oscillator.type = kind === 'bad' ? 'sawtooth' : 'sine';
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(gain).connect(audio.context.destination);
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.02);
+  });
+}
+
+/* ---------- Saving ---------- */
+
+function serializeState(gameState) {
+  const { visited, currentEncounter, ...rest } = gameState;
+  return {
+    ...rest,
+    visited: [...visited],
+    currentEncounterId: currentEncounter ? currentEncounter.id : null
+  };
+}
+
+function saveGame(gameState = state) {
+  if (!gameState.started) return;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version: SAVE_VERSION,
+      savedAt: Date.now(),
+      state: serializeState(gameState)
+    }));
+  } catch (error) {
+    // A failed save should never interrupt the voyage.
+  }
+}
+
+function readSave() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    if (!raw || raw.version !== SAVE_VERSION || !raw.state) return null;
+    const saved = raw.state;
+    if (!story[saved.currentKey] && saved.currentKey !== 'chance') return null;
+    if (saved.currentKey === 'chance' && !saved.currentEncounterId) return null;
+
+    const restored = {
+      ...initialState,
+      ...saved,
+      visited: new Set(Array.isArray(saved.visited) ? saved.visited : []),
+      currentEncounter: null,
+      started: true,
+      screen: saved.screen === 'shop' || saved.screen === 'expansion' ? saved.screen : 'story',
+      savedAt: raw.savedAt || null
+    };
+
+    if (saved.currentEncounterId) {
+      restored.currentEncounter = chanceEncounters.find((encounter) => encounter.id === saved.currentEncounterId) || null;
+      if (!restored.currentEncounter) return null;
+      restored.visited.add(restored.currentEncounter.id);
+    }
+    return restored;
+  } catch (error) {
+    return null;
+  }
+}
+
+function loadGame() {
+  const restored = readSave();
+  if (!restored) {
+    showToast('No saved voyage found.');
+    return;
+  }
+  closeModal();
+  state = restored;
+  lastSceneSignature = '';
+  playSound('choice');
+  renderGame(state);
+  showToast('Voyage restored.');
+}
+
+function makeNewState() {
+  return {
+    ...initialState,
+    inventory: [...initialState.inventory],
+    visited: new Set(),
+    log: ['Navigator online. Verge of the Ashen Verge.'],
+    screen: 'story',
+    started: true,
+    currentKey: 'ambush',
+    currentEncounter: null,
+    pendingNext: null,
+    voyageDay: 1,
+    encountersPlayed: 0,
+    lastEncounterId: null,
+    lastEncounterType: null,
+    chanceRemaining: 0,
+    repairsUsed: false,
+    endingRecorded: false
+  };
+}
+
+function startNewVoyage() {
+  closeModal();
+  state = makeNewState();
+  lastSceneSignature = '';
+  saveGame(state);
+  playSound('choice');
+  renderGame(state);
+  showToast('New voyage underway.');
+}
+
+function restartGame() {
+  startNewVoyage();
+}
+
+/* ---------- Records ---------- */
+
+function getRecords() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RECORDS_KEY) || 'null');
+    if (saved && typeof saved === 'object') {
+      return { voyages: Number(saved.voyages) || 0, best: Number(saved.best) || 0 };
+    }
+  } catch (error) {
+    // Ignore and start a fresh record book.
+  }
+  return { voyages: 0, best: 0 };
+}
+
+function getLegacyScore(gameState) {
+  return gameState.reputation
+    + Math.floor(gameState.morale / 10)
+    + Math.floor(gameState.supplies / 10)
+    - Math.floor(gameState.crew / 10);
+}
+
+function recordVoyage(gameState) {
+  const records = getRecords();
+  const score = getLegacyScore(gameState);
+  records.voyages += 1;
+  records.best = Math.max(records.best, score);
+  try {
+    localStorage.setItem(RECORDS_KEY, JSON.stringify(records));
+  } catch (error) {
+    // Records are optional polish.
+  }
+}
+
+/* ---------- Modal, toast, announcements ---------- */
+
+function announce(message) {
+  const region = document.getElementById('announcer');
+  if (region) region.textContent = message;
+}
+
+function showToast(message, tone = 'info') {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.dataset.tone = tone;
+  toast.classList.add('visible');
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => toast.classList.remove('visible'), 2600);
+}
+
+function openModal({ title, description = '', content = '', actions = [], onMount = null }) {
+  const root = document.getElementById('modalRoot');
+  if (!root) return;
+  if (root.hidden) modalReturnFocus = document.activeElement;
+
+  const actionMarkup = actions.map((action, index) => `
+    <button class="choice-btn modal-action ${action.kind || ''}" data-modal-action="${index}" type="button">
+      <strong>${action.label}</strong>
+      ${action.detail ? `<span class="modal-action-detail">${action.detail}</span>` : ''}
+    </button>
+  `).join('');
+
+  root.hidden = false;
+  root.innerHTML = `
+    <div class="modal-backdrop" data-close-modal="true">
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalDescription">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Arbiter command</p>
+            <h2 id="modalTitle">${title}</h2>
+          </div>
+          <button class="icon-btn modal-close" type="button" aria-label="Close menu" data-close-modal="true">✕</button>
+        </div>
+        ${description ? `<p id="modalDescription" class="modal-description">${description}</p>` : '<span id="modalDescription" class="sr-only">Game menu</span>'}
+        ${content ? `<div class="modal-content">${content}</div>` : ''}
+        <div class="modal-actions">${actionMarkup}</div>
+      </section>
+    </div>
+  `;
+
+  root.querySelectorAll('[data-close-modal="true"]').forEach((el) => {
+    el.addEventListener('click', (event) => {
+      if (event.target.closest('.modal-card') && el.classList.contains('modal-backdrop')) return;
+      closeModal();
+    });
+  });
+
+  root.querySelectorAll('[data-modal-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = actions[Number(button.dataset.modalAction)];
+      if (!action) return;
+      playSound('click');
+      if (action.onClick) action.onClick();
+    });
+  });
+
+  const card = root.querySelector('.modal-card');
+  const focusTarget = card.querySelector('.modal-action') || card.querySelector('.modal-close');
+  if (focusTarget) focusTarget.focus({ preventScroll: true });
+
+  if (onMount) onMount(card);
+  document.body.classList.add('modal-open');
+}
+
+function closeModal() {
+  const root = document.getElementById('modalRoot');
+  if (!root || root.hidden) return;
+  root.hidden = true;
+  root.innerHTML = '';
+  document.body.classList.remove('modal-open');
+  if (modalReturnFocus && typeof modalReturnFocus.focus === 'function') {
+    modalReturnFocus.focus({ preventScroll: true });
+  }
+  modalReturnFocus = null;
+}
+
+function openMenu() {
+  if (!state.started) return;
+  openModal({
+    title: 'Pause menu',
+    description: 'Progress saves automatically after every decision.',
+    content: `
+      <div class="settings-list">
+        <div class="settings-row">
+          <div><strong>Sound effects</strong><span>Short tones for choices, dice, and endings.</span></div>
+          <button id="menuSoundToggle" class="toggle-btn" type="button" aria-pressed="${settings.sound}">${settings.sound ? 'On' : 'Off'}</button>
+        </div>
+        <div class="settings-row">
+          <div><strong>Animations</strong><span>Turn off motion for a calmer interface.</span></div>
+          <button id="menuMotionToggle" class="toggle-btn" type="button" aria-pressed="${settings.motion}">${settings.motion ? 'On' : 'Off'}</button>
+        </div>
+      </div>
+    `,
+    actions: [
+      { label: 'Resume voyage', onClick: closeModal, kind: 'primary' },
+      { label: 'View full ship log', onClick: () => openLog() },
+      { label: 'Save and return to title', onClick: returnToTitle },
+      { label: 'Restart voyage', detail: 'Return to the ambush with fresh stats.', kind: 'danger', onClick: confirmRestart }
+    ],
+    onMount: (card) => {
+      card.querySelector('#menuSoundToggle').addEventListener('click', (event) => {
+        settings.sound = !settings.sound;
+        saveSettings();
+        event.currentTarget.textContent = settings.sound ? 'On' : 'Off';
+        event.currentTarget.setAttribute('aria-pressed', String(settings.sound));
+        playSound('click');
+      });
+      card.querySelector('#menuMotionToggle').addEventListener('click', (event) => {
+        settings.motion = !settings.motion;
+        saveSettings();
+        event.currentTarget.textContent = settings.motion ? 'On' : 'Off';
+        event.currentTarget.setAttribute('aria-pressed', String(settings.motion));
+      });
+    }
+  });
+}
+
+function openLog() {
+  const entries = state.log.slice().reverse();
+  openModal({
+    title: 'Ship log',
+    description: 'The full record of this voyage, newest first.',
+    content: `<ol class="full-log">${entries.map((entry) => `<li>${entry}</li>`).join('')}</ol>`,
+    actions: [{ label: 'Back', onClick: openMenu }]
+  });
+}
+
+function confirmRestart() {
+  openModal({
+    title: 'Restart the voyage?',
+    description: 'Current progress and stats will be replaced. Your completed-voyage record is kept.',
+    actions: [
+      { label: 'Keep playing', onClick: closeModal, kind: 'primary' },
+      { label: 'Restart from the ambush', onClick: startNewVoyage, kind: 'danger' }
+    ]
+  });
+}
+
+/* ---------- PWA ---------- */
+
+function setupInstallPrompt() {
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (standalone) return;
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    if (state.screen === 'title') renderGame(state);
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    showToast('Starlance installed.');
+  });
+}
+
+async function installApp() {
+  if (!deferredInstallPrompt) {
+    showToast('Use your browser menu to install this app.');
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  try {
+    await deferredInstallPrompt.userChoice;
+  } finally {
+    deferredInstallPrompt = null;
+    if (state.screen === 'title') renderGame(state);
+  }
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || !/^https?:$/.test(window.location.protocol)) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 
 const story = {
   intro: {
@@ -461,14 +875,14 @@ function renderCombat(state, scene) {
     maneuver: `Maneuver bonus: +${state.armorBonus} suit + 2 pilot training`,
     negotiate: `Diplomacy bonus: +${Math.floor(state.reputation / 2)} reputation + ${Math.floor(state.morale / 20)} morale`
   };
-  sceneEl.innerHTML = `<div class="scene-top"><h2>${scene.title}</h2><span class="scene-badge">${scene.badge}</span></div>
+  sceneEl.innerHTML = `<div class="scene-top"><h2 id="sceneTitle" tabindex="-1">${scene.title}</h2><span class="scene-badge">${scene.badge}</span></div>
     <div class="scene-body combat-layout"><div class="story-copy">
       <p>${scene.text}</p>
       <div class="combat-console">
         <div class="enemy-card"><span class="eyebrow">Hostile contact · threat 14</span><strong>Verge Raider Skiff</strong><p>Hull 1 · Disruptor lock active</p></div>
         ${result ? `<div class="roll-result ${result.success ? 'good' : 'danger'}"><span class="die-face">${result.roll}</span><div><strong>${result.headline}</strong><p>d20 ${result.roll} + ${result.bonus} = ${result.total} vs DC ${result.dc}. ${result.message}</p></div></div>
           <button id="continueCombat" class="choice-btn" type="button"><strong>Continue to the Verge</strong></button>` : `<div class="action-list" role="group" aria-label="Combat approach">
-          ${Object.entries(actionLabels).map(([key, label]) => `<button class="action-btn ${state.combatAction === key ? 'selected' : ''}" data-action="${key}" type="button"><strong>${label}</strong><span>${actionInfo[key]}</span></button>`).join('')}
+          ${Object.entries(actionLabels).map(([key, label]) => `<button class="action-btn ${state.combatAction === key ? 'selected' : ''}" data-action="${key}" type="button" aria-pressed="${state.combatAction === key}"><strong>${label}</strong><span>${actionInfo[key]}</span></button>`).join('')}
         </div><button id="rollCombat" class="roll-btn" type="button">🎲 Roll d20 — ${actionLabels[state.combatAction]}</button><p class="dice-note">Natural 20: critical success · Natural 1: critical failure</p>`}
       </div>
     </div><aside class="side-panel"><div class="mission-box"><h3>Equipped</h3><p><strong>${state.weapon}</strong><br>Weapon bonus +${state.weaponBonus}<br><br><strong>${state.armor}</strong><br>Maneuver bonus +${state.armorBonus}</p></div><div class="outcome-box warn"><h3>Check</h3><p>Roll a d20 and add the bonus for your chosen approach. Meet or beat the DC to turn the ambush in your favor.</p></div></aside></div>`;
@@ -478,6 +892,7 @@ function renderCombat(state, scene) {
       state.currentKey = 'intro';
       state.chapter = 'Departure';
       state.combatResult = null;
+      playSound('choice');
       renderGame(state);
     });
     return;
@@ -485,6 +900,7 @@ function renderCombat(state, scene) {
   sceneEl.querySelectorAll('.action-btn').forEach((button) => {
     button.addEventListener('click', () => {
       state.combatAction = button.dataset.action;
+      playSound('click');
       renderGame(state);
     });
   });
@@ -512,6 +928,7 @@ function renderCombat(state, scene) {
     }
     state.combatResult = { roll, bonus, total, dc, success, headline, message };
     state.log.push(`${headline} (d20 ${roll} + ${bonus} vs DC ${dc}).`);
+    playSound(success ? 'good' : 'bad');
     renderGame(state);
   });
 }
@@ -519,7 +936,7 @@ function renderCombat(state, scene) {
 function renderExpansion(state) {
   const sceneEl = document.getElementById('scene');
   if (state.expansionStep >= expansionScenes.length) {
-    sceneEl.innerHTML = `<div class="scene-top"><h2>The Quiet Signal</h2><span class="scene-badge">Free expansion complete</span></div><div class="scene-body"><div class="story-copy"><p>The habitat has a future, and the signal is no longer unanswered. Your choices in this bonus chapter have been added to the voyage ledger.</p><div class="outcome-box good"><h3>Chapter reward</h3><p>+8 reputation for bringing the scattered fleet together.</p></div><button id="finishExpansion" class="choice-btn" type="button"><strong>Return to your voyage</strong></button></div><aside class="side-panel"><div class="mission-box"><h3>Included content</h3><p>Three short scenes, multiple outcomes, and no purchase required.</p></div></aside></div>`;
+    sceneEl.innerHTML = `<div class="scene-top"><h2 id="sceneTitle" tabindex="-1">The Quiet Signal</h2><span class="scene-badge">Free expansion complete</span></div><div class="scene-body"><div class="story-copy"><p>The habitat has a future, and the signal is no longer unanswered. Your choices in this bonus chapter have been added to the voyage ledger.</p><div class="outcome-box good"><h3>Chapter reward</h3><p>+8 reputation for bringing the scattered fleet together.</p></div><button id="finishExpansion" class="choice-btn" type="button"><strong>Return to your voyage</strong></button></div><aside class="side-panel"><div class="mission-box"><h3>Included content</h3><p>Three short scenes, multiple outcomes, and no purchase required.</p></div></aside></div>`;
     if (!state.expansionRewarded) {
       state.reputation = clamp(state.reputation + 8, -20, 20);
       state.expansionRewarded = true;
@@ -530,15 +947,19 @@ function renderExpansion(state) {
     document.getElementById('finishExpansion').addEventListener('click', () => {
       state.screen = 'story';
       state.expansionDone = true;
+      playSound('choice');
       renderGame(state);
+      showToast('Free episode saved to the voyage ledger.');
     });
     return;
   }
   const episode = expansionScenes[state.expansionStep];
-  sceneEl.innerHTML = `<div class="scene-top"><h2>${episode.title}</h2><span class="scene-badge">${episode.badge}</span></div><div class="scene-body"><div class="story-copy"><p>${episode.text}</p><div class="choice-list">${episode.choices.map((choice, index) => `<button class="choice-btn expansion-choice" data-index="${index}" type="button"><strong>${choice.text}</strong></button>`).join('')}</div></div><aside class="side-panel"><div class="mission-box"><h3>Free story pack</h3><p>Episode scene ${state.expansionStep + 1} of ${expansionScenes.length}. Your decisions affect the same crew, supplies, and reputation as the main voyage.</p></div><button id="leaveExpansion" class="ghost-btn" type="button">Leave episode</button></aside></div>`;
+  sceneEl.innerHTML = `<div class="scene-top"><h2 id="sceneTitle" tabindex="-1">${episode.title}</h2><span class="scene-badge">${episode.badge}</span></div><div class="scene-body"><div class="story-copy"><p>${episode.text}</p><div class="choice-list">${episode.choices.map((choice, index) => `<button class="choice-btn expansion-choice" data-index="${index}" type="button"><span class="choice-tag">${describeEffects(choice.effect)}</span><strong>${choice.text}</strong></button>`).join('')}</div></div><aside class="side-panel"><div class="mission-box"><h3>Free story pack</h3><p>Episode scene ${state.expansionStep + 1} of ${expansionScenes.length}. Your decisions affect the same crew, supplies, and reputation as the main voyage.</p></div><button id="leaveExpansion" class="ghost-btn" type="button">Leave episode</button></aside></div>`;
   sceneEl.querySelectorAll('.expansion-choice').forEach((button) => {
     button.addEventListener('click', () => {
       const choice = episode.choices[Number(button.dataset.index)];
+      const net = Object.values(choice.effect || {}).reduce((sum, value) => sum + value, 0);
+      playSound(net >= 2 ? 'good' : net <= -2 ? 'bad' : 'choice');
       applyEffects(state, choice.effect);
       state.log.push(`Quiet Signal: ${choice.text}`);
       state.expansionStep += 1;
@@ -547,19 +968,28 @@ function renderExpansion(state) {
   });
   document.getElementById('leaveExpansion').addEventListener('click', () => {
     state.screen = 'story';
+    playSound('click');
     renderGame(state);
   });
 }
 
 function drawChanceEncounter(state) {
+  const visited = state.visited instanceof Set ? state.visited : new Set();
+  const unseen = (encounter) => !visited.has(encounter.id) && encounter.id !== state.lastEncounterId;
+
   const roll = Math.random();
   let type = roll < 0.38 ? 'Fortune' : roll < 0.76 ? 'Hazard' : 'Crossroads';
   if (type === state.lastEncounterType) {
     type = ['Fortune', 'Hazard', 'Crossroads'].filter((candidate) => candidate !== type)[Math.floor(Math.random() * 2)];
   }
-  let pool = chanceEncounters.filter((encounter) => encounter.type === type && encounter.id !== state.lastEncounterId);
+
+  let pool = chanceEncounters.filter((encounter) => encounter.type === type && unseen(encounter));
+  if (!pool.length) pool = chanceEncounters.filter(unseen);
   if (!pool.length) pool = chanceEncounters.filter((encounter) => encounter.id !== state.lastEncounterId);
+  if (!pool.length) pool = chanceEncounters.slice();
+
   const encounter = pool[Math.floor(Math.random() * pool.length)];
+  state.visited.add(encounter.id);
   state.lastEncounterId = encounter.id;
   state.lastEncounterType = encounter.type;
   return encounter;
@@ -570,6 +1000,29 @@ function describeEffects(effect = {}) {
   return Object.entries(effect).map(([key, value]) => `${value > 0 ? '+' : ''}${value} ${labels[key] || key}`).join(' · ');
 }
 
+function getChancePips(state) {
+  const total = 3;
+  const completed = clamp(total - state.chanceRemaining, 0, total);
+  return `<div class="chance-pips" role="img" aria-label="${completed} of ${total} long-passage encounters completed">
+    ${Array.from({ length: total }, (_, index) => `<span class="${index < completed ? 'done' : index === completed ? 'active' : ''}"></span>`).join('')}
+  </div>`;
+}
+
+function copyVoyageSummary(state, outcome) {
+  const summary = [
+    `Starlance: A New Horizon`,
+    `${state.voyageDay} days · ${state.encountersPlayed} chance encounters · ${state.crew} crew · ${state.reputation} reputation`,
+    outcome.message
+  ].join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(summary)
+      .then(() => showToast('Voyage summary copied to the clipboard.'))
+      .catch(() => showToast('Could not copy the summary.'));
+  } else {
+    showToast('Clipboard is not available in this browser.');
+  }
+}
+
 function renderScene(state, sceneKey) {
   const scene = sceneKey === 'chance' ? state.currentEncounter : (story[sceneKey] || story.intro);
   if (scene.type === 'combat') {
@@ -578,11 +1031,21 @@ function renderScene(state, sceneKey) {
   }
   const sceneEl = document.getElementById('scene');
   const outcome = getEndingTone(state);
+  const isEnding = sceneKey === 'ending';
+  const badge = isEnding
+    ? { good: 'Triumph', warn: 'Costly victory', danger: 'Broken legacy' }[outcome.tone]
+    : scene.badge;
+
+  if (isEnding && !state.endingRecorded) {
+    state.endingRecorded = true;
+    recordVoyage(state);
+    saveGame(state);
+  }
 
   sceneEl.innerHTML = `
     <div class="scene-top">
-      <h2>${scene.title}</h2>
-      <span class="scene-badge">${scene.badge}</span>
+      <h2 id="sceneTitle" tabindex="-1">${scene.title}</h2>
+      <span class="scene-badge ${isEnding ? `tone-${outcome.tone}` : ''}">${badge}</span>
     </div>
     <div class="scene-body">
       <div class="story-copy">
@@ -600,8 +1063,17 @@ function renderScene(state, sceneKey) {
                 <h3>Legacy</h3>
                 <p>${outcome.message}</p>
               </div>
-              <div class="mission-box"><h3>Voyage complete</h3><p>${state.voyageDay} days · ${state.encountersPlayed} chance encounters · ${state.crew} crew remain.</p></div>
-              <button id="playAgain" class="choice-btn" type="button"><strong>Launch another voyage</strong></button>
+              <div class="ending-stats">
+                <div><span>Days</span><strong>${state.voyageDay}</strong></div>
+                <div><span>Crew</span><strong>${state.crew}</strong></div>
+                <div><span>Reputation</span><strong>${state.reputation}</strong></div>
+                <div><span>Encounters</span><strong>${state.encountersPlayed}</strong></div>
+              </div>
+              <p class="legacy-score">Legacy score <strong>${getLegacyScore(state)}</strong></p>
+              <div class="button-row">
+                <button id="playAgain" class="choice-btn primary-action" type="button"><strong>Launch another voyage</strong></button>
+                <button id="shareRun" class="ghost-btn" type="button">Copy voyage summary</button>
+              </div>
             `}
         </div>
       </div>
@@ -609,6 +1081,7 @@ function renderScene(state, sceneKey) {
         <div class="mission-box">
           <h3>Mission</h3>
           <p>Hold the line through the Ashen Verge and shape a future that the colony can survive.<br><br><strong>Voyage day:</strong> ${state.voyageDay}<br><strong>Chance encounters:</strong> ${state.encountersPlayed}${state.currentKey === 'chance' ? ` · ${state.chanceRemaining} ahead` : ''}</p>
+          ${state.currentKey === 'chance' || state.encountersPlayed >= 3 ? getChancePips(state) : ''}
         </div>
         <div class="outcome-box ${outcome.tone}">
           <h3>Forecast</h3>
@@ -619,7 +1092,14 @@ function renderScene(state, sceneKey) {
   `;
 
   if (!scene.choices.length) {
-    document.getElementById('playAgain').addEventListener('click', restartGame);
+    document.getElementById('playAgain').addEventListener('click', () => {
+      playSound('choice');
+      restartGame();
+    });
+    document.getElementById('shareRun').addEventListener('click', () => {
+      playSound('click');
+      copyVoyageSummary(state, outcome);
+    });
   }
   if (scene.choices.length) {
     sceneEl.querySelectorAll('.choice-btn').forEach((button) => {
@@ -628,6 +1108,9 @@ function renderScene(state, sceneKey) {
         const selected = scene.choices[idx];
         if (!selected) return;
 
+        const nextKey = button.dataset.next;
+        const net = Object.values(selected.effect || {}).reduce((sum, value) => sum + value, 0);
+        playSound(isEnding ? 'ending' : nextKey === 'ending' ? 'ending' : net >= 2 ? 'good' : net <= -2 ? 'bad' : 'choice');
         applyEffects(state, selected.effect);
         state.log.push(`${selected.text} — ${describeEffects(selected.effect) || 'no change'}.`);
         if (sceneKey === 'chance') {
@@ -643,7 +1126,6 @@ function renderScene(state, sceneKey) {
             state.pendingNext = null;
           }
         } else {
-          const nextKey = button.dataset.next;
           state.currentKey = nextKey;
           state.chapter = nextKey;
           const isMajorTravelBeat = ['relay', 'icebound', 'stormfront', 'salvation', 'outcast', 'truce', 'banner', 'compromise', 'mercantile'].includes(sceneKey);
@@ -666,80 +1148,306 @@ function getCriticalState(state) {
   if (state.crew <= 0) {
     return {
       title: 'The Arbiter is lost',
+      badge: 'Voyage ended',
       tone: 'danger',
       message: 'The crew has fallen, the ship is drifting, and the colony has no future on this route. The storm claims the last of your command.',
-      action: 'Restart the voyage'
+      action: 'Restart the voyage',
+      canRepair: false
     };
   }
 
   if (state.shields <= 0) {
+    const canRepair = !state.repairsUsed && state.supplies >= 10 && state.scrap >= 8;
     return {
       title: 'Hull breach',
+      badge: 'Emergency',
       tone: 'warn',
-      message: 'The Arbiter is crippled and unable to hold the line. If you do not regroup now, the frontier will bury the ship under its own wreckage.',
-      action: 'Restart the voyage'
+      message: state.repairsUsed
+        ? 'The Arbiter is crippled and the emergency reserves are spent. The frontier will bury the ship under its own wreckage unless you return to the start.'
+        : 'The shields have collapsed and the outer hull is open to the dark. One emergency repair could still bring the Arbiter back, but the parts will cost supplies and scrap.',
+      action: 'Restart the voyage',
+      canRepair
     };
   }
 
   return null;
 }
 
-function renderGame(state) {
-  createStats(state);
-  updateLog(state);
+function renderTitle() {
+  const saved = readSave();
+  const records = getRecords();
+  const sceneEl = document.getElementById('scene');
+  const savedFinished = saved && saved.currentKey === 'ending';
+  const savedLine = saved
+    ? savedFinished
+      ? `Voyage complete · ${saved.voyageDay} days`
+      : `Day ${saved.voyageDay} · ${saved.crew} crew · ${saved.currentKey === 'chance' ? 'long passage' : 'in transit'}`
+    : '';
 
-  const critical = getCriticalState(state);
-  if (critical) {
-    const sceneEl = document.getElementById('scene');
-    sceneEl.innerHTML = `<div class="scene-top"><h2>${critical.title}</h2><span class="scene-badge">Critical failure</span></div>
-      <div class="scene-body"><div class="story-copy"><p>${critical.message}</p><button id="restartCritical" class="choice-btn" type="button"><strong>${critical.action}</strong></button></div><aside class="side-panel"><div class="outcome-box ${critical.tone}"><h3>Legacy</h3><p>The line is broken. Your ship can only recover by returning to the start and choosing a wiser path.</p></div></aside></div>`;
-    document.getElementById('restartCritical').addEventListener('click', restartGame);
-    return;
-  }
+  sceneEl.innerHTML = `
+    <div class="scene-top title-top">
+      <h2 id="sceneTitle" tabindex="-1">A New Horizon</h2>
+      <span class="scene-badge">Command the Arbiter</span>
+    </div>
+    <div class="scene-body title-body">
+      <div class="story-copy">
+        <p class="title-lead">The colony ship <strong>Arbiter</strong> is through the wormgate, but the route ahead is a storm of unstable stars. Every decision spends crew, supplies, and trust—and the frontier remembers.</p>
+        <div class="feature-row">
+          <div class="feature-chip"><strong>Branching route</strong><span>16 story scenes</span></div>
+          <div class="feature-chip"><strong>12 encounters</strong><span>Fortune, hazard, crossroads</span></div>
+          <div class="feature-chip"><strong>Auto-save</strong><span>Resume any time</span></div>
+        </div>
+        <div class="title-actions">
+          <button id="beginVoyage" class="roll-btn title-primary" type="button">Begin a new voyage</button>
+          ${saved ? `<button id="continueVoyage" class="choice-btn continue-btn" type="button"><span class="choice-tag">${savedFinished ? 'Last voyage' : 'Continue voyage'} · ${savedLine}</span><strong>${savedFinished ? 'Review your last ending' : 'Resume from your last decision'}</strong></button>` : ''}
+        </div>
+        ${saved ? `<p class="save-note">Progress is saved automatically${saved.savedAt ? ` · last saved ${new Date(saved.savedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}.</p>` : ''}
+        <details class="briefing">
+          <summary>How to play</summary>
+          <p>Choose a route, manage six ship stats, and survive the d20 ambush. In the long passage before the final horizon, three chance encounters test your judgment. Every choice is permanent for that voyage.</p>
+        </details>
+        <div class="title-acts">
+          <div><span>Act I</span><strong>Break the blockade</strong><p>Pick a route through the fractured Verge.</p></div>
+          <div><span>Act II</span><strong>Survive the passage</strong><p>Three chance encounters decide what you carry forward.</p></div>
+          <div><span>Act III</span><strong>Claim the horizon</strong><p>Spend your legacy on the sector's future.</p></div>
+        </div>
+        ${deferredInstallPrompt ? '<button id="installApp" class="ghost-btn install-btn" type="button">Install Starlance</button>' : ''}
+      </div>
+      <aside class="side-panel">
+        <div class="mission-box">
+          <h3>Captain's record</h3>
+          <div class="record-grid">
+            <div><span>Voyages completed</span><strong>${records.voyages}</strong></div>
+            <div><span>Best legacy</span><strong>${records.voyages ? records.best : '—'}</strong></div>
+          </div>
+        </div>
+        <div class="mission-box">
+          <h3>What's aboard</h3>
+          <p>Three acts, twelve chance encounters, a free three-scene episode, a shipyard, and several endings. No accounts, no ads, no purchase required.</p>
+        </div>
+      </aside>
+    </div>
+  `;
 
-  if (state.screen === 'shop') {
-    renderShop(state);
-  } else if (state.screen === 'expansion') {
-    renderExpansion(state);
-  } else {
-    renderScene(state, state.currentKey);
+  document.getElementById('beginVoyage').addEventListener('click', () => {
+    playSound('choice');
+    const activeSave = readSave();
+    if (activeSave && activeSave.currentKey !== 'ending') {
+      openModal({
+        title: 'Begin a new voyage?',
+        description: 'An unfinished voyage is waiting. Starting over will replace its save file; completed voyage records are kept.',
+        actions: [
+          { label: 'Continue the saved voyage', onClick: loadGame, kind: 'primary' },
+          { label: 'Start over anyway', onClick: startNewVoyage, kind: 'danger' }
+        ]
+      });
+    } else {
+      startNewVoyage();
+    }
+  });
+
+  const continueButton = document.getElementById('continueVoyage');
+  if (continueButton) continueButton.addEventListener('click', loadGame);
+
+  const installButton = document.getElementById('installApp');
+  if (installButton) installButton.addEventListener('click', installApp);
+}
+
+function updateHeader(gameState) {
+  const critical = getCriticalState(gameState);
+  const exploring = gameState.started && gameState.screen !== 'title' && !critical;
+  ['shipyardBtn', 'expansionBtn'].forEach((id) => {
+    const button = document.getElementById(id);
+    if (button) button.disabled = !exploring;
+  });
+  const menu = document.getElementById('menuBtn');
+  if (menu) menu.disabled = !gameState.started || gameState.screen === 'title';
+  document.body.dataset.screen = gameState.started ? (gameState.screen || 'story') : 'title';
+}
+
+function focusScene(gameState) {
+  const sceneEl = document.getElementById('scene');
+  if (!sceneEl) return;
+  const critical = getCriticalState(gameState);
+  const signature = [
+    gameState.screen,
+    gameState.currentKey,
+    gameState.currentEncounter ? gameState.currentEncounter.id : '',
+    gameState.combatResult ? `roll-${gameState.combatResult.roll}-${gameState.combatResult.success}` : '',
+    gameState.expansionStep,
+    gameState.started ? 'started' : 'title',
+    critical ? critical.title : ''
+  ].join('|');
+  if (signature === lastSceneSignature) return;
+  lastSceneSignature = signature;
+  const heading = sceneEl.querySelector('h2');
+  if (heading) {
+    if (!heading.id) heading.id = 'sceneTitle';
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: false });
+    const badge = sceneEl.querySelector('.scene-badge');
+    announce(`${heading.textContent}${badge ? `. ${badge.textContent}` : ''}`);
   }
 }
 
-function resetGame() {
-  const fresh = {
+function renderCritical(critical) {
+  const sceneEl = document.getElementById('scene');
+  sceneEl.innerHTML = `<div class="scene-top"><h2 id="sceneTitle" tabindex="-1">${critical.title}</h2><span class="scene-badge tone-${critical.tone}">${critical.badge}</span></div>
+    <div class="scene-body"><div class="story-copy"><p>${critical.message}</p>
+      <div class="choice-list">
+        ${critical.canRepair ? `<button id="repairHull" class="choice-btn primary-action" type="button"><span class="choice-tag">Emergency repair · -10 supplies · -8 scrap</span><strong>Divert emergency power to the shield array</strong></button>` : ''}
+        <button id="restartCritical" class="choice-btn ${critical.canRepair ? '' : 'primary-action'}" type="button"><strong>${critical.action}</strong></button>
+      </div>
+      ${critical.canRepair ? '<p class="save-note">One emergency repair is available this voyage.</p>' : '<p class="save-note">No emergency repair is available. A fresh voyage is the only way forward.</p>'}
+    </div><aside class="side-panel"><div class="outcome-box ${critical.tone}"><h3>Emergency protocol</h3><p>${critical.canRepair ? 'The engine room can reroute power and seal the breach, but the patch is temporary and costly.' : 'The line is broken. Your ship can only recover by returning to the start and choosing a wiser path.'}</p></div></aside></div>`;
+
+  if (critical.canRepair) {
+    document.getElementById('repairHull').addEventListener('click', () => {
+      state.repairsUsed = true;
+      applyEffects(state, { shields: 30, supplies: -10, scrap: -8 });
+      state.log.push('Emergency repair restored 30 shields for 10 supplies and 8 scrap.');
+      playSound('good');
+      renderGame(state);
+      showToast('Emergency repair complete. Shields restored.');
+    });
+  }
+  document.getElementById('restartCritical').addEventListener('click', () => {
+    playSound('choice');
+    restartGame();
+  });
+}
+
+function renderGame(gameState = state) {
+  createStats(gameState);
+  updateLog(gameState);
+  updateHeader(gameState);
+  if (gameState.started) saveGame(gameState);
+
+  const critical = getCriticalState(gameState);
+  if (critical) {
+    renderCritical(critical);
+    focusScene(gameState);
+    return;
+  }
+
+  if (gameState.screen === 'title' || !gameState.started) {
+    renderTitle();
+  } else if (gameState.screen === 'shop') {
+    renderShop(gameState);
+  } else if (gameState.screen === 'expansion') {
+    renderExpansion(gameState);
+  } else {
+    renderScene(gameState, gameState.currentKey);
+  }
+  focusScene(gameState);
+}
+
+function makeTitleState() {
+  return {
     ...initialState,
     inventory: [...initialState.inventory],
     visited: new Set(),
     log: ['Navigator online. Verge of the Ashen Verge.'],
-    screen: 'story',
+    screen: 'title',
+    started: false,
     currentKey: 'ambush',
-    pendingNext: null,
-    voyageDay: 1,
-    encountersPlayed: 0,
-    lastEncounterId: null,
-    lastEncounterType: null,
-    chanceRemaining: 0,
     currentEncounter: null
   };
-  renderGame(fresh);
-  return fresh;
 }
 
-let state = resetGame();
-
-function restartGame() {
-  state = resetGame();
+function returnToTitle() {
+  const previous = state;
+  saveGame(previous);
+  closeModal();
+  state = makeTitleState();
+  lastSceneSignature = '';
+  renderGame(state);
+  showToast('Voyage saved. Continue from the title screen.');
 }
 
-document.getElementById('restartBtn').addEventListener('click', restartGame);
+let state = makeTitleState();
+
+document.getElementById('menuBtn').addEventListener('click', openMenu);
+
+document.getElementById('soundBtn').addEventListener('click', () => {
+  settings.sound = !settings.sound;
+  saveSettings();
+  if (settings.sound) playSound('good');
+  showToast(settings.sound ? 'Sound on.' : 'Sound muted.');
+});
 
 document.getElementById('shipyardBtn').addEventListener('click', () => {
+  if (!state.started) return;
   state.screen = 'shop';
+  playSound('click');
   renderGame(state);
 });
 
 document.getElementById('expansionBtn').addEventListener('click', () => {
+  if (!state.started) return;
   state.screen = 'expansion';
+  playSound('click');
   renderGame(state);
 });
+
+/* ---------- Global interaction ---------- */
+
+function trapModalFocus(event) {
+  const card = document.querySelector('.modal-card');
+  if (!card) return;
+  const focusable = [...card.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((element) => !element.disabled && element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+document.addEventListener('keydown', (event) => {
+  const modalRoot = document.getElementById('modalRoot');
+  const modalOpen = modalRoot && !modalRoot.hidden;
+  if (modalOpen) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeModal();
+    } else if (event.key === 'Tab') {
+      trapModalFocus(event);
+    }
+    return;
+  }
+
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.key === 'Escape' && state.started) {
+    openMenu();
+    return;
+  }
+  if (!/^[1-9]$/.test(event.key)) return;
+  if (!state.started || state.screen !== 'story' || state.currentKey === 'ambush' || state.currentKey === 'ending') return;
+  const buttons = [...document.querySelectorAll('#scene .choice-btn')];
+  const target = buttons[Number(event.key) - 1];
+  if (target) {
+    event.preventDefault();
+    target.click();
+  }
+});
+
+document.addEventListener('pointerdown', initAudio, { once: true });
+
+window.addEventListener('pagehide', () => {
+  if (state.started) saveGame(state);
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.started) saveGame(state);
+});
+
+applySettings();
+setupInstallPrompt();
+registerServiceWorker();
+renderGame(state);
