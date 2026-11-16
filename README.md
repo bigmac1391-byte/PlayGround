@@ -1,4 +1,24 @@
-# PlayGround
+# Starlance: A New Horizon
+
+A self-contained deep-space choice adventure. Command the colony ship **Arbiter** through the Ashen Verge, manage crew and supplies, survive a d20 ambush, and shape one of several endings.
+
+## Play
+
+- **Route:** 16 branching story scenes plus a three-scene free episode.
+- **Chance encounters:** 12 fortune, hazard, and crossroads events, with three uncertain days before the finale.
+- **Systems:** six ship stats, a shipyard, equipment, reputation, legacy scoring, and a per-voyage emergency repair.
+- **App features:** automatic local saves with Continue, full pause menu, sound effects, reduced-motion option, keyboard shortcuts (`1`–`3`, `Esc`), installable PWA, and offline caching.
+- **Controls:** mouse, touch, or keyboard. Progress is stored only in the browser.
+
+Run locally from this folder:
+
+```sh
+python3 -m http.server 3002
+```
+
+Then open <http://localhost:3002>.
+
+No build step, accounts, ads, or purchases are required.
 
 <!-- omgithub:readme:start -->
 ## 🚀 Build, play, and remix with OMGithub

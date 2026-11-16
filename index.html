@@ -2,16 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#050b18" />
+    <meta name="description" content="Command the colony ship Arbiter through the Ashen Verge in Starlance: A New Horizon, a branching deep-space choice adventure." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Starlance" />
     <title>Starlance: A New Horizon</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <link rel="manifest" href="manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="stars"></div>
+    <a class="skip-link" href="#scene">Skip to the story</a>
+    <div class="stars" aria-hidden="true"></div>
     <div class="hud-wrap">
       <header class="topbar">
         <div>
@@ -19,9 +27,16 @@
           <h1>Starlance: A New Horizon</h1>
         </div>
         <nav class="top-actions" aria-label="Game actions">
-          <button id="shipyardBtn" class="ghost-btn" type="button">Shipyard</button>
-          <button id="expansionBtn" class="ghost-btn" type="button">Free episode</button>
-          <button id="restartBtn" class="ghost-btn" type="button">Restart</button>
+          <button id="shipyardBtn" class="ghost-btn" type="button" disabled>Shipyard</button>
+          <button id="expansionBtn" class="ghost-btn" type="button" disabled>Free episode</button>
+          <button id="soundBtn" class="icon-btn sound-btn" type="button" aria-pressed="true" aria-label="Mute sound effects" title="Sound on">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path class="speaker" d="M4 9.2h3.6L13 5v14l-5.4-4.2H4z"></path>
+              <path class="waves" d="M16 8.2a5.2 5.2 0 0 1 0 7.6M18.6 5.4a9 9 0 0 1 0 13.2"></path>
+              <path class="slash" d="M4.5 4.5l15 15"></path>
+            </svg>
+          </button>
+          <button id="menuBtn" class="ghost-btn" type="button" disabled>Menu</button>
         </nav>
       </header>
 
@@ -29,17 +44,25 @@
         <aside class="status-panel">
           <h2>Mission Readout</h2>
           <div class="stat-grid" id="stats"></div>
-          <div class="fleet-box">
-            <h3>Ship Log</h3>
+          <details class="fleet-box" open>
+            <summary>Ship Log</summary>
             <ul id="logList"></ul>
-          </div>
+          </details>
         </aside>
 
-        <section class="story-panel">
-          <div id="scene" class="scene-card"></div>
+        <section class="story-panel" aria-label="Story">
+          <div id="scene" class="scene-card" tabindex="-1"></div>
         </section>
       </main>
+      <footer class="page-footer">
+        <span>Starlance · A self-contained choice adventure</span>
+        <span>Progress saves on this device</span>
+      </footer>
     </div>
+
+    <div id="modalRoot" class="modal-root" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="announcer" class="sr-only" role="status" aria-live="polite"></div>
 
     <script src="game.js"></script>
   </body>
